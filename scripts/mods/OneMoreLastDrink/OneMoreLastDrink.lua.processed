@@ -2,19 +2,26 @@ local mod = get_mod("OneMoreLastDrink")
 
 Managers.package:load("resource_packages/dlcs/celebrate_ingame", "global", nil, true, false)
 
+mod.debug = mod:get("debug_logging") or false
 local CONFIG = {
-    max_beers = 50,
-    spawn_min_dist = 40,
-    spawn_max_dist = 60,
-    despawn_dist = 150,
-    spawn_interval = 2.0,
-    spawns_per_tick = 8,
+    max_beers = 40,
+    spawn_min_dist = 15,
+    spawn_max_dist = 50,
+    despawn_dist = 55,
+    spawn_interval = 1,
+    spawns_per_tick = 10,
     enabled = true
 }
 
 local beers = {}
 local spawn_timer = 0
 local despawn_timer = 0
+
+local function log_d(msg)
+    if mod.debug then
+        mod:echo("[DEBUG] " .. msg)
+    end
+end
 
 local function vec3_to_table(vec)
     if not vec then
@@ -81,23 +88,64 @@ local function too_close_to_players(pos, players, min_dist)
     return false
 end
 
--- pick random point in ring around center, not too close to any player
 local function pick_spawn_point(center, players)
-    for _ = 1, 10 do
-        local angle = math.random() * 2 * math.pi
-        local dist = CONFIG.spawn_min_dist + math.random() * (CONFIG.spawn_max_dist - CONFIG.spawn_min_dist)
-        local pos = {
-            x = center.x + math.cos(angle) * dist,
-            y = center.y + math.sin(angle) * dist,
-            z = center.z + 0.5
-        }
-        if not too_close_to_players(pos, players, CONFIG.spawn_min_dist) then
-            return pos
+    local ai_system = Managers.state.entity:system("ai_system")
+    local nav_world = ai_system and ai_system:nav_world()
+
+    -- Case 1: no navmesh at all --> behave exactly like old system
+    if not nav_world then
+        log_d("Nav world unavailable, spawning without navmesh")
+
+        for _ = 1, 10 do
+            local angle = math.random() * 2 * math.pi
+            local dist = CONFIG.spawn_min_dist + math.random() * (CONFIG.spawn_max_dist - CONFIG.spawn_min_dist)
+
+            local pos = {
+                x = center.x + math.cos(angle) * dist,
+                y = center.y + math.sin(angle) * dist,
+                z = center.z + 0.5
+            }
+
+            if not too_close_to_players(pos, players, CONFIG.spawn_min_dist) then
+                return pos
+            end
         end
     end
-    -- fallback
+
+    -- Case 2: navmesh exists --> require navmesh hit
+    if nav_world then
+        for _ = 1, 10 do
+            local angle = math.random() * 2 * math.pi
+            local dist = CONFIG.spawn_min_dist + math.random() * (CONFIG.spawn_max_dist - CONFIG.spawn_min_dist)
+
+            local tx = center.x + math.cos(angle) * dist
+            local ty = center.y + math.sin(angle) * dist
+            local tz = center.z + 0.5
+
+            local pos = {
+                x = tx,
+                y = ty,
+                z = tz
+            }
+
+            if not too_close_to_players(pos, players, CONFIG.spawn_min_dist) then
+                local probe = Vector3(tx, ty, tz)
+                local success, altitude = GwNavQueries.triangle_from_position(nav_world, probe, 5, 5)
+
+                if success then
+                    pos.z = altitude
+                    return pos
+                end
+            end
+        end
+
+        log_d("Failed to find navmesh spawn, using fallback")
+    end
+
+    -- Case 3: fallback (guaranteed return)
     local angle = math.random() * 2 * math.pi
     local dist = (CONFIG.spawn_min_dist + CONFIG.spawn_max_dist) / 2
+
     return {
         x = center.x + math.cos(angle) * dist,
         y = center.y + math.sin(angle) * dist,
@@ -116,6 +164,8 @@ local function spawn_beer(pos)
     table.insert(beers, {
         pos = pos
     })
+    log_d("Spawned beer at (" .. string.format("%.1f", pos.x) .. ", " .. string.format("%.1f", pos.y) .. ", " ..
+              string.format("%.1f", pos.z) .. ")")
 end
 
 local function destroy_beer_near(pos)
@@ -133,6 +183,8 @@ local function destroy_beer_near(pos)
                     local ext = ScriptUnit.extension(unit, "pickup_system")
                     if ext and (ext.pickup_name or ext._pickup_name) == "beer_bottle" then
                         Managers.state.unit_spawner:mark_for_deletion(unit)
+                        log_d("Destroyed beer at (" .. string.format("%.1f", pos.x) .. ", " ..
+                                  string.format("%.1f", pos.y) .. ", " .. string.format("%.1f", pos.z) .. ")")
                         return true
                     end
                 end
@@ -187,35 +239,100 @@ local function do_despawns()
     end
 end
 
+-- add mod option for debug logging
+-- shoould be available in the UI too
+
 mod.hub_levels = {
-	inn_level = true,
-	inn_level_skulls = true,
-	inn_level_celebrate = true,
-	inn_level_halloween = true,
-	inn_level_sonnstill = true
+    inn_level = true,
+    inn_level_skulls = true,
+    inn_level_celebrate = true,
+    inn_level_halloween = true,
+    inn_level_sonnstill = true
 }
 
 mod.is_in_keep = function(self)
     if Managers and Managers.state and Managers.state.game_mode then
         local level_key = Managers.state.game_mode:level_key()
-        return level_key ==
+        return level_key and mod.hub_levels[level_key]
     end
-    return false
+end
+
+mod.on_setting_changed = function(setting_name)
+    if setting_name == "debug_logging" then
+        mod.debug = mod:get("debug_logging")
+    end
 end
 
 mod:command("beer", "Toggle beer spawning", function()
+    if not mod:is_host() then
+        mod:echo("Only the host can toggle beer spawning.")
+        return
+    end
     CONFIG.enabled = not CONFIG.enabled
     mod:echo("Beer spawning: " .. (CONFIG.enabled and "ON" or "OFF"))
 end)
 
+local log_cfg_once = false
+local log_managers_once = false
+local log_keep_once = false
+local log_is_host_once = false
+
+mod.is_host = function()
+    -- Don't check during loading screens or before game is ready
+    if not Managers.state.game_mode then
+        return false
+    end
+    
+    local network_manager = Managers.state.network
+    if not network_manager or not network_manager._lobby then
+        return false
+    end
+    
+    local local_player = Managers.player:local_player()
+    if not local_player then
+        return false
+    end
+    
+    -- Make sure player is fully initialized
+    local local_peer_id = local_player:network_id()
+    if not local_peer_id then
+        return false
+    end
+    
+    local lobby_host = network_manager._lobby:lobby_host()
+    if not lobby_host then
+        return false
+    end
+    
+    return local_peer_id == lobby_host
+end
+
 mod.update = function(dt)
-    if not CONFIG.enabled then
+    if not mod:is_host() then
+        if not log_is_host_once then
+            log_d("Not host, skipping beer spawn.")
+            log_is_host_once = true
+        end
+        return
+    end
+    if not CONFIG.enabled then 
+        if not log_cfg_once then
+        log_d("Beer spawning is disabled.")
+        log_cfg_once = true
         return
     end
     if not Managers.player or not Managers.state or not Managers.state.network then
+        if not log_managers_once then
+            log_d("Managers not ready.")
+            log_managers_once = true
+        end
         return
     end
     if mod:is_in_keep() then
+        if not log_keep_once then
+            log_d("In keep, skipping beer spawn.")
+            log_keep_once = true
+        end
         return
     end
     local lp = Managers.player:local_player()
@@ -241,4 +358,4 @@ mod.on_disabled = function()
     beers = {}
 end
 
-mod:echo("OneMoreLastDrink loaded! Use /beer to toggle")
+mod:echo("OneMoreLastDrink v0.1.1 loaded! Use /beer to toggle")
