@@ -2,13 +2,14 @@ local mod = get_mod("OneMoreLastDrink")
 
 Managers.package:load("resource_packages/dlcs/celebrate_ingame", "global", nil, true, false)
 
+mod.debug = mod:get("debug_logging") or false
 local CONFIG = {
     max_beers = 50,
-    spawn_min_dist = 40,
-    spawn_max_dist = 60,
-    despawn_dist = 70,
-    spawn_interval = 2.0,
-    spawns_per_tick = 3,
+    spawn_min_dist = 20,
+    spawn_max_dist = 45,
+    despawn_dist = 85,
+    spawn_interval = 0.5,
+    spawns_per_tick = 8,
     enabled = true
 }
 
@@ -16,45 +17,73 @@ local beers = {}
 local spawn_timer = 0
 local despawn_timer = 0
 
+local function log_d(msg)
+    if mod.debug then
+        mod:echo("[DEBUG] " .. msg)
+    end
+end
+
 local function vec3_to_table(vec)
-    if not vec then return nil end
-    local ok, x, y, z = pcall(function() return vec.x, vec.y, vec.z end)
-    if ok and x then return {x = x, y = y, z = z} end
+    if not vec then
+        return nil
+    end
+    local ok, x, y, z = pcall(function()
+        return vec.x, vec.y, vec.z
+    end)
+    if ok and x then
+        return {
+            x = x,
+            y = y,
+            z = z
+        }
+    end
     return nil
 end
 
 local function dist_sq(a, b)
     local dx, dy, dz = a.x - b.x, a.y - b.y, a.z - b.z
-    return dx*dx + dy*dy + dz*dz
+    return dx * dx + dy * dy + dz * dz
 end
 
 local function get_player_positions()
     local positions = {}
-    if not Managers.player then return positions end
-    
+    if not Managers.player then
+        return positions
+    end
+
     for _, player in pairs(Managers.player:players()) do
         if player.player_unit and Unit.alive(player.player_unit) then
             local pos = vec3_to_table(Unit.local_position(player.player_unit, 0))
-            if pos then table.insert(positions, pos) end
+            if pos then
+                table.insert(positions, pos)
+            end
         end
     end
     return positions
 end
 
 local function get_player_center(positions)
-    if #positions == 0 then return nil end
-    
+    if #positions == 0 then
+        return nil
+    end
+
     local cx, cy, cz = 0, 0, 0
     for _, p in ipairs(positions) do
         cx, cy, cz = cx + p.x, cy + p.y, cz + p.z
     end
-    return {x = cx / #positions, y = cy / #positions, z = cz / #positions}
+    return {
+        x = cx / #positions,
+        y = cy / #positions,
+        z = cz / #positions
+    }
 end
 
 local function too_close_to_players(pos, players, min_dist)
     local min_sq = min_dist * min_dist
     for _, p in ipairs(players) do
-        if dist_sq(pos, p) < min_sq then return true end
+        if dist_sq(pos, p) < min_sq then
+            return true
+        end
     end
     return false
 end
@@ -85,31 +114,36 @@ end
 
 local function spawn_beer(pos)
     local net = Managers.state and Managers.state.network and Managers.state.network.network_transmit
-    if not net then return end
-    
-    net:send_rpc_server(
-        "rpc_spawn_pickup_with_physics",
-        NetworkLookup.pickup_names["beer_bottle"],
-        Vector3(pos.x, pos.y, pos.z),
-        Quaternion.identity(),
-        NetworkLookup.pickup_spawn_types["dropped"]
-    )
-    table.insert(beers, {pos = pos})
+    if not net then
+        return
+    end
+
+    net:send_rpc_server("rpc_spawn_pickup_with_physics", NetworkLookup.pickup_names["beer_bottle"],
+        Vector3(pos.x, pos.y, pos.z), Quaternion.identity(), NetworkLookup.pickup_spawn_types["dropped"])
+    table.insert(beers, {
+        pos = pos
+    })
+    log_d("Spawned beer at (" .. string.format("%.1f", pos.x) .. ", " .. string.format("%.1f", pos.y) .. ", " ..
+              string.format("%.1f", pos.z) .. ")")
 end
 
 local function destroy_beer_near(pos)
     local world = Managers.world:world("level_world")
-    if not world then return false end
-    
+    if not world then
+        return false
+    end
+
     for _, unit in ipairs(World.units(world)) do
         if Unit.alive(unit) and ScriptUnit.has_extension(unit, "pickup_system") then
             local upos = Unit.local_position(unit, 0)
             if upos then
                 local dx, dy, dz = upos.x - pos.x, upos.y - pos.y, upos.z - pos.z
-                if dx*dx + dy*dy + dz*dz <= 9 then -- 3m radius
+                if dx * dx + dy * dy + dz * dz <= 9 then -- 3m radius
                     local ext = ScriptUnit.extension(unit, "pickup_system")
                     if ext and (ext.pickup_name or ext._pickup_name) == "beer_bottle" then
                         Managers.state.unit_spawner:mark_for_deletion(unit)
+                        log_d("Destroyed beer at (" .. string.format("%.1f", pos.x) .. ", " ..
+                                  string.format("%.1f", pos.y) .. ", " .. string.format("%.1f", pos.z) .. ")")
                         return true
                     end
                 end
@@ -120,12 +154,16 @@ local function destroy_beer_near(pos)
 end
 
 local function do_spawns()
-    if #beers >= CONFIG.max_beers then return end
-    
+    if #beers >= CONFIG.max_beers then
+        return
+    end
+
     local players = get_player_positions()
     local center = get_player_center(players)
-    if not center then return end
-    
+    if not center then
+        return
+    end
+
     local count = math.min(CONFIG.spawns_per_tick, CONFIG.max_beers - #beers)
     for _ = 1, count do
         spawn_beer(pick_spawn_point(center, players))
@@ -134,11 +172,13 @@ end
 
 local function do_despawns()
     local players = get_player_positions()
-    if #players == 0 then return end
-    
+    if #players == 0 then
+        return
+    end
+
     local max_sq = CONFIG.despawn_dist * CONFIG.despawn_dist
     local to_remove = {}
-    
+
     for i, beer in ipairs(beers) do
         local too_far = true
         for _, p in ipairs(players) do
@@ -152,9 +192,33 @@ local function do_despawns()
             destroy_beer_near(beer.pos)
         end
     end
-    
+
     for i = #to_remove, 1, -1 do
         table.remove(beers, to_remove[i])
+    end
+end
+
+-- add mod option for debug logging
+-- shoould be available in the UI too
+
+mod.hub_levels = {
+    inn_level = true,
+    inn_level_skulls = true,
+    inn_level_celebrate = true,
+    inn_level_halloween = true,
+    inn_level_sonnstill = true
+}
+
+mod.is_in_keep = function(self)
+    if Managers and Managers.state and Managers.state.game_mode then
+        local level_key = Managers.state.game_mode:level_key()
+        return level_key and mod.hub_levels[level_key]
+    end
+end
+
+mod.on_setting_changed = function(setting_name)
+    if setting_name == "debug_logging" then
+        mod.debug = mod:get("debug_logging")
     end
 end
 
@@ -163,19 +227,41 @@ mod:command("beer", "Toggle beer spawning", function()
     mod:echo("Beer spawning: " .. (CONFIG.enabled and "ON" or "OFF"))
 end)
 
+local log_cfg_once = false
+local log_managers_once = false
+local log_keep_once = false
+
 mod.update = function(dt)
-    if not CONFIG.enabled then return end
-    if not Managers.player or not Managers.state or not Managers.state.network then return end
-    
+    if not CONFIG.enabled and not log_cfg_once then
+        log_d("Beer spawning is disabled.")
+        log_cfg_once = true
+        return
+    end
+    if not Managers.player or not Managers.state or not Managers.state.network then
+        if not log_managers_once then
+            log_d("Managers not ready.")
+            log_managers_once = true
+        end
+        return
+    end
+    if mod:is_in_keep() then
+        if not log_keep_once then
+            log_d("In keep, skipping beer spawn.")
+            log_keep_once = true
+        end
+        return
+    end
     local lp = Managers.player:local_player()
-    if not lp or not lp.player_unit or not Unit.alive(lp.player_unit) then return end
-    
+    if not lp or not lp.player_unit or not Unit.alive(lp.player_unit) then
+        return
+    end
+
     spawn_timer = spawn_timer + dt
     if spawn_timer >= CONFIG.spawn_interval then
         spawn_timer = 0
         mod:pcall(do_spawns)
     end
-    
+
     despawn_timer = despawn_timer + dt
     if despawn_timer >= 1.0 then
         despawn_timer = 0
