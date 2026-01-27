@@ -264,6 +264,10 @@ mod.on_setting_changed = function(setting_name)
 end
 
 mod:command("beer", "Toggle beer spawning", function()
+    if not mod:is_host() then
+        mod:echo("Only the host can toggle beer spawning.")
+        return
+    end
     CONFIG.enabled = not CONFIG.enabled
     mod:echo("Beer spawning: " .. (CONFIG.enabled and "ON" or "OFF"))
 end)
@@ -274,26 +278,56 @@ local log_keep_once = false
 local log_is_host_once = false
 
 mod.is_host = function()
-    return Managers.state.network.is_server
+    -- Don't check during loading screens or before game is ready
+    if not Managers.state.game_mode then
+        return false
+    end
+
+    local network_manager = Managers.state.network
+    if not network_manager or not network_manager._lobby then
+        return false
+    end
+
+    local local_player = Managers.player:local_player()
+    if not local_player then
+        return false
+    end
+
+    -- Make sure player is fully initialized
+    local local_peer_id = local_player:network_id()
+    if not local_peer_id then
+        return false
+    end
+
+    local lobby_host = network_manager._lobby:lobby_host()
+    if not lobby_host then
+        return false
+    end
+
+    return local_peer_id == lobby_host
 end
 
 mod.update = function(dt)
+    if not Managers.player or not Managers.state or not Managers.state.network then
+        if not log_managers_once then
+            log_d("Managers not ready.")
+            log_managers_once = true
+        end
+        return
+    end
     if not mod:is_host() then
+        -- note: this does not trigger properly because it triggers during level load
+        --       where managers are dead
         if not log_is_host_once then
             log_d("Not host, skipping beer spawn.")
             log_is_host_once = true
         end
         return
     end
-    if not CONFIG.enabled and not log_cfg_once then
-        log_d("Beer spawning is disabled.")
-        log_cfg_once = true
-        return
-    end
-    if not Managers.player or not Managers.state or not Managers.state.network then
-        if not log_managers_once then
-            log_d("Managers not ready.")
-            log_managers_once = true
+    if not CONFIG.enabled then
+        if not log_cfg_once then
+            log_d("Beer spawning is disabled.")
+            log_cfg_once = true
         end
         return
     end
@@ -327,4 +361,4 @@ mod.on_disabled = function()
     beers = {}
 end
 
-mod:echo("OneMoreLastDrink loaded! Use /beer to toggle")
+mod:echo("OneMoreLastDrink v0.1.2 loaded! Use /beer to toggle")
