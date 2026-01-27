@@ -4,12 +4,12 @@ Managers.package:load("resource_packages/dlcs/celebrate_ingame", "global", nil, 
 
 mod.debug = mod:get("debug_logging") or false
 local CONFIG = {
-    max_beers = 50,
-    spawn_min_dist = 20,
-    spawn_max_dist = 45,
-    despawn_dist = 85,
-    spawn_interval = 0.5,
-    spawns_per_tick = 8,
+    max_beers = 55,
+    spawn_min_dist = 15,
+    spawn_max_dist = 50,
+    despawn_dist = 55,
+    spawn_interval = 1,
+    spawns_per_tick = 10,
     enabled = true
 }
 
@@ -88,23 +88,64 @@ local function too_close_to_players(pos, players, min_dist)
     return false
 end
 
--- pick random point in ring around center, not too close to any player
 local function pick_spawn_point(center, players)
-    for _ = 1, 10 do
-        local angle = math.random() * 2 * math.pi
-        local dist = CONFIG.spawn_min_dist + math.random() * (CONFIG.spawn_max_dist - CONFIG.spawn_min_dist)
-        local pos = {
-            x = center.x + math.cos(angle) * dist,
-            y = center.y + math.sin(angle) * dist,
-            z = center.z + 0.5
-        }
-        if not too_close_to_players(pos, players, CONFIG.spawn_min_dist) then
-            return pos
+    local ai_system = Managers.state.entity:system("ai_system")
+    local nav_world = ai_system and ai_system:nav_world()
+
+    -- Case 1: no navmesh at all --> behave exactly like old system
+    if not nav_world then
+        log_d("Nav world unavailable, spawning without navmesh")
+
+        for _ = 1, 10 do
+            local angle = math.random() * 2 * math.pi
+            local dist = CONFIG.spawn_min_dist + math.random() * (CONFIG.spawn_max_dist - CONFIG.spawn_min_dist)
+
+            local pos = {
+                x = center.x + math.cos(angle) * dist,
+                y = center.y + math.sin(angle) * dist,
+                z = center.z + 0.5
+            }
+
+            if not too_close_to_players(pos, players, CONFIG.spawn_min_dist) then
+                return pos
+            end
         end
     end
-    -- fallback
+
+    -- Case 2: navmesh exists --> require navmesh hit
+    if nav_world then
+        for _ = 1, 10 do
+            local angle = math.random() * 2 * math.pi
+            local dist = CONFIG.spawn_min_dist + math.random() * (CONFIG.spawn_max_dist - CONFIG.spawn_min_dist)
+
+            local tx = center.x + math.cos(angle) * dist
+            local ty = center.y + math.sin(angle) * dist
+            local tz = center.z + 0.5
+
+            local pos = {
+                x = tx,
+                y = ty,
+                z = tz
+            }
+
+            if not too_close_to_players(pos, players, CONFIG.spawn_min_dist) then
+                local probe = Vector3(tx, ty, tz)
+                local success, altitude = GwNavQueries.triangle_from_position(nav_world, probe, 5, 5)
+
+                if success then
+                    pos.z = altitude
+                    return pos
+                end
+            end
+        end
+
+        log_d("Failed to find navmesh spawn, using fallback")
+    end
+
+    -- Case 3: fallback (guaranteed return)
     local angle = math.random() * 2 * math.pi
     local dist = (CONFIG.spawn_min_dist + CONFIG.spawn_max_dist) / 2
+
     return {
         x = center.x + math.cos(angle) * dist,
         y = center.y + math.sin(angle) * dist,
