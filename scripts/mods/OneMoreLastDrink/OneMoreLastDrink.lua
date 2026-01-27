@@ -4,7 +4,7 @@ Managers.package:load("resource_packages/dlcs/celebrate_ingame", "global", nil, 
 
 mod.debug = mod:get("debug_logging") or false
 local CONFIG = {
-    max_beers = 55,
+    max_beers = 40,
     spawn_min_dist = 15,
     spawn_max_dist = 50,
     despawn_dist = 55,
@@ -271,8 +271,20 @@ end)
 local log_cfg_once = false
 local log_managers_once = false
 local log_keep_once = false
+local log_is_host_once = false
+
+mod.is_host = function()
+    return Managers.state.network.is_server
+end
 
 mod.update = function(dt)
+    if not mod:is_host() then
+        if not log_is_host_once then
+            log_d("Not host, skipping beer spawn.")
+            log_is_host_once = true
+        end
+        return
+    end
     if not CONFIG.enabled and not log_cfg_once then
         log_d("Beer spawning is disabled.")
         log_cfg_once = true
