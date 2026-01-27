@@ -1,0 +1,191 @@
+local mod = get_mod("OneMoreLastDrink")
+
+Managers.package:load("resource_packages/dlcs/celebrate_ingame", "global", nil, true, false)
+
+local CONFIG = {
+    max_beers = 50,
+    spawn_min_dist = 40,
+    spawn_max_dist = 60,
+    despawn_dist = 70,
+    spawn_interval = 2.0,
+    spawns_per_tick = 3,
+    enabled = true
+}
+
+local beers = {}
+local spawn_timer = 0
+local despawn_timer = 0
+
+local function vec3_to_table(vec)
+    if not vec then return nil end
+    local ok, x, y, z = pcall(function() return vec.x, vec.y, vec.z end)
+    if ok and x then return {x = x, y = y, z = z} end
+    return nil
+end
+
+local function dist_sq(a, b)
+    local dx, dy, dz = a.x - b.x, a.y - b.y, a.z - b.z
+    return dx*dx + dy*dy + dz*dz
+end
+
+local function get_player_positions()
+    local positions = {}
+    if not Managers.player then return positions end
+    
+    for _, player in pairs(Managers.player:players()) do
+        if player.player_unit and Unit.alive(player.player_unit) then
+            local pos = vec3_to_table(Unit.local_position(player.player_unit, 0))
+            if pos then table.insert(positions, pos) end
+        end
+    end
+    return positions
+end
+
+local function get_player_center(positions)
+    if #positions == 0 then return nil end
+    
+    local cx, cy, cz = 0, 0, 0
+    for _, p in ipairs(positions) do
+        cx, cy, cz = cx + p.x, cy + p.y, cz + p.z
+    end
+    return {x = cx / #positions, y = cy / #positions, z = cz / #positions}
+end
+
+local function too_close_to_players(pos, players, min_dist)
+    local min_sq = min_dist * min_dist
+    for _, p in ipairs(players) do
+        if dist_sq(pos, p) < min_sq then return true end
+    end
+    return false
+end
+
+-- pick random point in ring around center, not too close to any player
+local function pick_spawn_point(center, players)
+    for _ = 1, 10 do
+        local angle = math.random() * 2 * math.pi
+        local dist = CONFIG.spawn_min_dist + math.random() * (CONFIG.spawn_max_dist - CONFIG.spawn_min_dist)
+        local pos = {
+            x = center.x + math.cos(angle) * dist,
+            y = center.y + math.sin(angle) * dist,
+            z = center.z + 0.5
+        }
+        if not too_close_to_players(pos, players, CONFIG.spawn_min_dist) then
+            return pos
+        end
+    end
+    -- fallback
+    local angle = math.random() * 2 * math.pi
+    local dist = (CONFIG.spawn_min_dist + CONFIG.spawn_max_dist) / 2
+    return {
+        x = center.x + math.cos(angle) * dist,
+        y = center.y + math.sin(angle) * dist,
+        z = center.z + 0.5
+    }
+end
+
+local function spawn_beer(pos)
+    local net = Managers.state and Managers.state.network and Managers.state.network.network_transmit
+    if not net then return end
+    
+    net:send_rpc_server(
+        "rpc_spawn_pickup_with_physics",
+        NetworkLookup.pickup_names["beer_bottle"],
+        Vector3(pos.x, pos.y, pos.z),
+        Quaternion.identity(),
+        NetworkLookup.pickup_spawn_types["dropped"]
+    )
+    table.insert(beers, {pos = pos})
+end
+
+local function destroy_beer_near(pos)
+    local world = Managers.world:world("level_world")
+    if not world then return false end
+    
+    for _, unit in ipairs(World.units(world)) do
+        if Unit.alive(unit) and ScriptUnit.has_extension(unit, "pickup_system") then
+            local upos = Unit.local_position(unit, 0)
+            if upos then
+                local dx, dy, dz = upos.x - pos.x, upos.y - pos.y, upos.z - pos.z
+                if dx*dx + dy*dy + dz*dz <= 9 then -- 3m radius
+                    local ext = ScriptUnit.extension(unit, "pickup_system")
+                    if ext and (ext.pickup_name or ext._pickup_name) == "beer_bottle" then
+                        Managers.state.unit_spawner:mark_for_deletion(unit)
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function do_spawns()
+    if #beers >= CONFIG.max_beers then return end
+    
+    local players = get_player_positions()
+    local center = get_player_center(players)
+    if not center then return end
+    
+    local count = math.min(CONFIG.spawns_per_tick, CONFIG.max_beers - #beers)
+    for _ = 1, count do
+        spawn_beer(pick_spawn_point(center, players))
+    end
+end
+
+local function do_despawns()
+    local players = get_player_positions()
+    if #players == 0 then return end
+    
+    local max_sq = CONFIG.despawn_dist * CONFIG.despawn_dist
+    local to_remove = {}
+    
+    for i, beer in ipairs(beers) do
+        local too_far = true
+        for _, p in ipairs(players) do
+            if dist_sq(beer.pos, p) <= max_sq then
+                too_far = false
+                break
+            end
+        end
+        if too_far then
+            table.insert(to_remove, i)
+            destroy_beer_near(beer.pos)
+        end
+    end
+    
+    for i = #to_remove, 1, -1 do
+        table.remove(beers, to_remove[i])
+    end
+end
+
+mod:command("beer", "Toggle beer spawning", function()
+    CONFIG.enabled = not CONFIG.enabled
+    mod:echo("Beer spawning: " .. (CONFIG.enabled and "ON" or "OFF"))
+end)
+
+mod.update = function(dt)
+    if not CONFIG.enabled then return end
+    if not Managers.player or not Managers.state or not Managers.state.network then return end
+    
+    local lp = Managers.player:local_player()
+    if not lp or not lp.player_unit or not Unit.alive(lp.player_unit) then return end
+    
+    spawn_timer = spawn_timer + dt
+    if spawn_timer >= CONFIG.spawn_interval then
+        spawn_timer = 0
+        mod:pcall(do_spawns)
+    end
+    
+    despawn_timer = despawn_timer + dt
+    if despawn_timer >= 1.0 then
+        despawn_timer = 0
+        mod:pcall(do_despawns)
+    end
+end
+
+mod.on_disabled = function()
+    CONFIG.enabled = false
+    beers = {}
+end
+
+mod:echo("OneMoreLastDrink loaded! Use /beer to toggle")

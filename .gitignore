@@ -1,0 +1,5 @@
+**/BundleV2/**
+**/resource_packages/**
+.log
+*.log
+*.tmp

@@ -1,0 +1,95 @@
+local mod = get_mod("OneMoreLastDrink")
+
+local SPAWN_DISTANCE = 3
+mod.spawned_bottles = {}
+
+local function is_server()
+    local network_manager = Managers.state.network
+    return network_manager and network_manager:is_server()
+end
+
+local function is_in_game()
+    local game_mode_manager = Managers.state.game_mode
+    return game_mode_manager and game_mode_manager:game_mode()
+end
+
+local function get_player_unit()
+    local local_player = Managers.player:local_player()
+    if local_player and local_player.player_unit then
+        return local_player.player_unit
+    end
+    return nil
+end
+
+local function get_position_in_front_of_plyer(player_unit, distance)
+    local player_position = POSITION_LOOKUP[player_unit] or Unit.local_position(player_unit, 0)
+
+    local player_rot = Unit.local_rotation(player_unit, 0)
+    local forward = Quaternion.forward(player_rot)
+
+    local spawn_pos = player_pos + forward * distance
+    spawn_pos.z = spawn_pos.z + 0.5 -- slightly above ground
+    return spawn_pos
+end
+
+-- Spawn logic
+local ale_name = "beer_bottle"
+
+-- Make sure pickup name is correct
+local function get_pickup_name()
+    -- Verify the pickup exists
+    if AllPickups and AllPickups[BOTTLE_PICKUP_NAME] then
+        return BOTTLE_PICKUP_NAME
+    end
+
+    mod:echo("ERROR: Pickup '" .. BOTTLE_PICKUP_NAME .. "' not found!")
+    return nil
+end
+
+function mod.spawned_bottle()
+    if not is_server() then
+        mod:echo("Only the server can spawn bottles.")
+        return
+    end
+
+    if not is_in_game() then
+        mod:echo("You must be in a game to spawn bottles.")
+        return
+    end
+
+    local player_unit = get_player_unit()
+    if not player_unit then
+        mod:echo("Player unit not found.")
+        return
+    end
+
+    local pickup_name = get_pickup_name()
+    if not pickup_name then
+        mod:echo("Cannot spawn bottle: invalid pickup name.")
+        return
+    end
+
+    local spawn_pos = get_position_in_front_of_plyer(player_unit, SPAWN_DISTANCE)
+    local extension_init_data = {
+        pickup_system = {
+            has_physics = true,
+            pickup_name = pickup_name,
+            spawn_type = "debug"
+        }
+    }
+
+    local unit_name = pickup_settings.unit_name
+    local unit_template_name = pickup_settings.unit_template_name or "pickup_unit"
+
+    local succcess, spawned_unit = pcall(function()
+        return Managers.state.unit_spawner:spawn_unit_with_extensions(
+            unit_name,
+            unit_template_name,
+            extension_init_data,
+            spawn_pos,
+        )
+    end
+
+end
+
+-- https://vmf-docs.verminti.de
