@@ -7,6 +7,27 @@ local drunk_map = mod:dofile("scripts/mods/OneMoreLastDrink/drunk_map")
 -- Hero prefixes for sound event filtering
 local hero_prefixes = { pwh = true, pdr = true, pes = true, pbw = true, pwe = true }
 
+-- Inject Drunk Dialogs Metadata (fixes subtitles timing and add dialog after drinking and getting sober)
+local drunk_dialogues = {
+    "dialogues/generated/witch_hunter_crawl",
+    "dialogues/generated/bright_wizard_crawl",
+    "dialogues/generated/wood_elf_crawl",
+    "dialogues/generated/empire_soldier_crawl",
+    "dialogues/generated/dwarf_ranger_crawl",
+    "dialogues/generated/hero_conversations_crawl",
+    "dialogues/generated/witch_hunter_game_play_crawl",
+    "dialogues/generated/empire_soldier_game_play_crawl",
+    "dialogues/generated/bright_wizard_game_play_crawl",
+    "dialogues/generated/dwarf_ranger_game_play_crawl",
+    "dialogues/generated/wood_elf_game_play_crawl"
+}
+
+for _, path in ipairs(drunk_dialogues) do
+    if not table.contains(DialogueSettings.auto_load_files, path) then
+        table.insert(DialogueSettings.auto_load_files, path)
+    end
+end
+
 mod.debug = mod:get("debug_logging") or false
 local CONFIG = {
     max_beers = 40,
