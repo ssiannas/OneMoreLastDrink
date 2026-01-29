@@ -1,6 +1,11 @@
 local mod = get_mod("OneMoreLastDrink")
 
 Managers.package:load("resource_packages/dlcs/celebrate_ingame", "global", nil, true, false)
+Managers.package:load("resource_packages/levels/dlcs/celebrate/crawl", "global", nil, true, false)
+-- Load the drunk voicover mapping
+local drunk_map = mod:dofile("scripts/mods/OneMoreLastDrink/drunk_map")
+-- Hero prefixes for sound event filtering
+local hero_prefixes = { pwh = true, pdr = true, pes = true, pbw = true, pwe = true }
 
 mod.debug = mod:get("debug_logging") or false
 local CONFIG = {
@@ -361,4 +366,37 @@ mod.on_disabled = function()
     beers = {}
 end
 
-mod:echo("OneMoreLastDrink v0.1.2 loaded! Use /beer to toggle")
+-- Sound Event hook that changes the player voice lines to auto mapped drunk lines
+mod:hook(WwiseWorld, "trigger_event", function (func, self, event_name, ...)
+    if type(event_name) == "string" then
+        -- Grab the first 3 characters
+        local prefix = string.sub(event_name, 1, 3)
+
+        -- swap the voice line with mapped one if it's a hero voice line
+        if hero_prefixes[prefix] then
+            local replacement = drunk_map and drunk_map[event_name]
+
+            if replacement then
+                if mod:get("debug_logging") then
+                    mod:echo("<vfx_red>[Drunk] <vfx_white>Swapped: " .. event_name)
+                end
+                event_name = replacement
+            end
+        end
+    end
+
+    return func(self, event_name, ...)
+end)
+
+-- Subtitles hook
+mod:hook(Localizer, "lookup", function (func, self, text_id)
+    local replacement = drunk_map and drunk_map[text_id]
+
+    if replacement then
+        text_id = replacement
+    end
+
+    return func(self, text_id)
+end)
+
+mod:echo("OneMoreLastDrink v0.2.2 loaded! Use /beer to toggle")
