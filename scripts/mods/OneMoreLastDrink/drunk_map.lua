@@ -4080,5 +4080,5 @@ return {
     ["pwh_wp_activate_ability_07"] = "pwh_crawl_ability_04",
     ["pwh_wp_activate_ability_08"] = "pwh_crawl_ability_05",
     ["pwh_wp_activate_ability_09"] = "pwh_crawl_ability_06",
-    ["pwh_wp_activate_ability_10"] = "pwh_crawl_ability_drunk",
+    ["pwh_wp_activate_ability_10"] = "pwh_crawl_ability_drunk"
 }

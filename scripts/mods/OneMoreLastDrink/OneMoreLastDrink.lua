@@ -5,25 +5,26 @@ Managers.package:load("resource_packages/levels/dlcs/celebrate/crawl", "global",
 -- Load the drunk voicover mapping
 local drunk_map = mod:dofile("scripts/mods/OneMoreLastDrink/drunk_map")
 -- Hero prefixes for sound event filtering
-local hero_prefixes = { pwh = true, pdr = true, pes = true, pbw = true, pwe = true }
+local hero_prefixes = {
+    pwh = true,
+    pdr = true,
+    pes = true,
+    pbw = true,
+    pwe = true
+}
 
 -- Queue for delayed replies
 mod.reply_queue = {}
 
 -- Inject Drunk Dialogs Metadata (fixes subtitles timing and add dialog after drinking and getting sober)
-local drunk_dialogues = {
-    "dialogues/generated/witch_hunter_crawl",
-    "dialogues/generated/bright_wizard_crawl",
-    "dialogues/generated/wood_elf_crawl",
-    "dialogues/generated/empire_soldier_crawl",
-    "dialogues/generated/dwarf_ranger_crawl",
-    "dialogues/generated/hero_conversations_crawl",
-    "dialogues/generated/witch_hunter_game_play_crawl",
-    "dialogues/generated/empire_soldier_game_play_crawl",
-    "dialogues/generated/bright_wizard_game_play_crawl",
-    "dialogues/generated/dwarf_ranger_game_play_crawl",
-    "dialogues/generated/wood_elf_game_play_crawl"
-}
+local drunk_dialogues = {"dialogues/generated/witch_hunter_crawl", "dialogues/generated/bright_wizard_crawl",
+                         "dialogues/generated/wood_elf_crawl", "dialogues/generated/empire_soldier_crawl",
+                         "dialogues/generated/dwarf_ranger_crawl", "dialogues/generated/hero_conversations_crawl",
+                         "dialogues/generated/witch_hunter_game_play_crawl",
+                         "dialogues/generated/empire_soldier_game_play_crawl",
+                         "dialogues/generated/bright_wizard_game_play_crawl",
+                         "dialogues/generated/dwarf_ranger_game_play_crawl",
+                         "dialogues/generated/wood_elf_game_play_crawl"}
 
 for _, path in ipairs(drunk_dialogues) do
     if not table.contains(DialogueSettings.auto_load_files, path) then
@@ -301,14 +302,13 @@ mod:command("beer", "Toggle beer spawning", function()
     mod:echo("Beer spawning: " .. (CONFIG.enabled and "ON" or "OFF"))
 end)
 
-
 local log_cfg_once = false
 local log_managers_once = false
 local log_keep_once = false
 local log_is_host_once = false
 
 mod.is_host = function()
-	-- Don't check during loading screens or before game is ready
+    -- Don't check during loading screens or before game is ready
     if not Managers.state.game_mode then
         return false
     end
@@ -322,7 +322,7 @@ mod.is_host = function()
     if not local_player then
         return false
     end
-	-- Make sure player is fully initialized
+    -- Make sure player is fully initialized
     local local_peer_id = local_player:network_id()
     if not local_peer_id then
         return false
@@ -360,8 +360,8 @@ mod.update = function(dt)
         return
     end
     if not mod:is_host() then
-	-- note: this does not trigger properly because it triggers during level load
-    -- where managers are dead
+        -- note: this does not trigger properly because it triggers during level load
+        -- where managers are dead
         if not log_is_host_once then
             log_d("Not host, skipping beer spawn.")
             log_is_host_once = true
@@ -407,20 +407,20 @@ mod.on_disabled = function()
 end
 
 -- Sound Event hook
-mod:hook(WwiseWorld, "trigger_event", function (func, self, event_name, ...)
+mod:hook(WwiseWorld, "trigger_event", function(func, self, event_name, ...)
     if type(event_name) == "string" and hero_prefixes[string.sub(event_name, 1, 3)] then
         local replacement = drunk_map and drunk_map[event_name]
-        
+
         if replacement then
             event_name = replacement
 
             -- Check for Okri replies
-            if replacement == "pbw_crawl_ability_04" or replacement == "pes_crawl_ability_05" or 
-               replacement == "pes_gk_crawl_ability_05" or replacement == "pwe_crawl_ability_05" then
-                
+            if replacement == "pbw_crawl_ability_04" or replacement == "pes_crawl_ability_05" or replacement ==
+                "pes_gk_crawl_ability_05" or replacement == "pwe_crawl_ability_05" then
+
                 local bardin_alive = false
                 local players = Managers.player:human_and_bot_players()
-                
+
                 for _, player in pairs(players) do
                     if player:profile_display_name() == "dwarf_ranger" then
                         local unit = player.player_unit
@@ -436,8 +436,9 @@ mod:hook(WwiseWorld, "trigger_event", function (func, self, event_name, ...)
 
                 if bardin_alive then
                     local is_one = math.random(1, 2) == 1
-                    local reply_event = is_one and "pdr_crawl_ability_okri_reply_01" or "pdr_crawl_ability_okri_reply_02"
-                    
+                    local reply_event = is_one and "pdr_crawl_ability_okri_reply_01" or
+                                            "pdr_crawl_ability_okri_reply_02"
+
                     table.insert(mod.reply_queue, {
                         play_at = Managers.time:time("main") + 1.5,
                         sound = reply_event,
@@ -448,12 +449,12 @@ mod:hook(WwiseWorld, "trigger_event", function (func, self, event_name, ...)
             end
         end
     end
-    
+
     return func(self, event_name, ...)
 end)
 
 -- Subtitles hook
-mod:hook(Localizer, "lookup", function (func, self, text_id)
+mod:hook(Localizer, "lookup", function(func, self, text_id)
     -- If the text_id is a normal line, swap it to the drunk version from the map
     local replacement = drunk_map and drunk_map[text_id]
     if replacement then
@@ -480,35 +481,42 @@ mod:hook(Wwise, "set_state", function(func, state_group, state_name)
     -- Update music tracker states
     if state_group == "combat_intensity" or state_group == "game_state" or state_group == "boss_state" then
         mod.music_states[state_group] = state_name
-        
+
         local intensity = mod.music_states.combat_intensity
         local boss_active = mod.music_states.boss_state ~= "no_boss"
         local horde_active = mod.music_states.game_state == "horde"
 
         -- Music event triggering logic
-		-- Each events makes the chances to start drunk music higher:
-		-- high_battle combat state adds 50%
-		-- med_battle 25%
-		-- active boss 20%
-		-- incoming horde 20%
-		
+        -- Each events makes the chances to start drunk music higher:
+        -- high_battle combat state adds 50%
+        -- med_battle 25%
+        -- active boss 20%
+        -- incoming horde 20%
+
         if not mod.drunk_music_active then
             local total_chance = 0
 
-            if intensity == "high_battle" then total_chance = total_chance + 50
-            elseif intensity == "med_battle" then total_chance = total_chance + 25 end
-            if horde_active then total_chance = total_chance + 20 end
-            if boss_active then total_chance = total_chance + 20 end
+            if intensity == "high_battle" then
+                total_chance = total_chance + 50
+            elseif intensity == "med_battle" then
+                total_chance = total_chance + 25
+            end
+            if horde_active then
+                total_chance = total_chance + 20
+            end
+            if boss_active then
+                total_chance = total_chance + 20
+            end
 
             if total_chance > 0 and math.random(1, 100) <= total_chance then
                 mod.drunk_music_active = true
                 func("override", "terror_crawlbrawl")
             end
 
-        -- Event stop logic
+            -- Event stop logic
         elseif mod.drunk_music_active then
             local still_fighting = (intensity ~= "low_battle" or boss_active or horde_active)
-            
+
             if not still_fighting then
                 mod.drunk_music_active = false
                 func("override", "none")
