@@ -4052,7 +4052,7 @@ return {
     ["pwh_level_mine_found_cart_troll_cave_04"] = "pwh_crawl_monster_spotted_b_troll",
     ["pwh_level_mine_troll_doors"] = "pwh_crawl_monster_spotted_b_troll",
     ["pwh_level_mine_troll_doors_01"] = "pwh_crawl_monster_spotted_b_troll",
-    ["pwh_level_mine_troll_doors_02"] = "pwh_crawl_monster_spotted_b_troll",
+    ["pwh_level_mine_troll_doors_02"] = "pwh_crawl_monaster_spotted_b_troll",
     ["pwh_level_mine_troll_doors_03"] = "pwh_crawl_monster_spotted_b_troll",
     ["pwh_level_mine_troll_doors_04"] = "pwh_crawl_monster_spotted_b_troll",
     ["pwh_level_mine_troll_food_storage"] = "pwh_crawl_monster_spotted_b_troll",
